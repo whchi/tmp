@@ -20,3 +20,4 @@
 * 與DB連線那段是用PDO實作，如果沒有PDO模組請安裝
 * 兩份sql檔案都要安裝，因為有綁定外部索引
 * db_lib中有debuglog這段尚未實作
+* 使用POSTMAN測試
