@@ -1,15 +1,16 @@
 <?php
 include_once ROOT_PATH . 'articles/config/db_config.php';
-// include_once ROOT_PATH . 'articles/lib/debug_lib.php';
-/**
- * access to database
- */
-class DBAccess
+
+class PdoDatabase
 {
     /**
      * @var mixed
      */
-    private $host, $user, $passwd, $dblink, $dbname, $dsn, $db_tblcharset;
+    private $host, $user, $passwd, $dblink, $dbname, $dsn, $db_ltype, $db_tblcharset;
+    /**
+     * @var int
+     */
+    protected $transactionCounter = 0;
     /**
      * @var mixed
      */
@@ -23,7 +24,7 @@ class DBAccess
     }
     // public function __destruct()
     // {
-    //     $this->DBLINK = null;
+    //     $this->dblink = null;
     // }
     /**
      * @param $dbname
@@ -38,8 +39,8 @@ class DBAccess
         $this->db_tblcharset = DB_TBLCHARSET;
         $this->dsn = "{$this->db_ltype}:host={$this->host};dbname={$this->dbname};charset={$this->db_tblcharset}";
         try {
-            $this->DBLINK = new PDO($this->dsn, $this->user, $this->passwd);
-            $this->DBLINK->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            $this->dblink = new PDO($this->dsn, $this->user, $this->passwd);
+            $this->dblink->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         } catch (PDOException $e) {
             echo 'Connetcion failed: ' . $e->getMessage();
         }
@@ -50,7 +51,7 @@ class DBAccess
      */
     public function prepareQuery($query)
     {
-        $this->stmt = $this->DBLINK->prepare($query);
+        $this->stmt = $this->dblink->prepare($query);
     }
     /**
      * 綁定單一變數,避免SQL injection
@@ -64,7 +65,6 @@ class DBAccess
             switch (true) {
                 case is_int($value):
                     $type = PDO::PARAM_INT;
-                    break;
                 case is_bool($value):
                     $type = PDO::PARAM_BOOL;
                     break;
@@ -76,6 +76,16 @@ class DBAccess
             }
         }
         $this->stmt->bindParam($param, $value, $type);
+    }
+    /**
+     * 綁定多個變數,避免SQL injection
+     * @param array $param 傳入變數陣列
+     */
+    public function bindMultiParams(array $param)
+    {
+        foreach ($param as $k => $v) {
+            $this->bindSingleParam($k, $v);
+        }
     }
     /**
      * @return int
@@ -90,6 +100,7 @@ class DBAccess
      */
     public function getQuery($type = 0)
     {
+        $rst = [];
         if ($type === 0) {
             $this->stmt->setFetchMode(PDO::FETCH_ASSOC);
         }
@@ -100,68 +111,107 @@ class DBAccess
         while ($row = $this->stmt->fetch()) {
             $rst[] = $row;
         }
-        if (isset($rst) && !is_null($rst)) {
-            return array('ERROR_CODE' => '0', 'DATA' => $rst);
+        if (!is_null($rst)) {
+            return $rst;
         } else {
-            return array('ERROR_CODE' => '99', 'ERROR_MESSAGE' => 'DB ERROR, check debuglog');
-            // debug prefix: "An error occured while connect to db, more informations:"
-            // $debuglog->appendDebug(json_encode($this->stmt->errorInfo()));
-        }
-    }
-    public function doQuery()
-    {
-        $this->stmt->execute();
-        if ($this->getAffetedRows() !== 0) {
-            return array('ERROR_CODE' => '0');
-        } else {
-            return array('ERROR_CODE' => '99', 'ERROR_MESSAGE' => 'DB ERROR, check debuglog');
-            // debug prefix: "An error occured while connect to db, more informations:"
-            // $debuglog->appendDebug(json_encode($this->stmt->errorInfo()));
+            return $this->stmt->errorInfo();
         }
     }
     /**
+     * @return int
+     */
+    public function doQuery()
+    {
+        $this->stmt->execute();
+        return $this->getAffetedRows();
+    }
+    /**
      * 執行須回傳的多條件sql statement
-     * @param  array $whereAry 條件參數
+     * @param  array $where_ary 條件參數
      * @return mixed
      */
-    public function getQueryWithMultiWhere($whereAry, $type = 0)
+    public function getQueryWithMultiWhere($where_ary, $type = 0)
     {
+        $rst = [];
         if ($type === 0) {
             $this->stmt->setFetchMode(PDO::FETCH_ASSOC);
         }
         if ($type === 1) {
             $this->stmt->setFetchMode(PDO::FETCH_NUM);
         }
-        $this->stmt->execute($whereAry);
+        $this->stmt->execute($where_ary);
         while ($row = $this->stmt->fetch()) {
             $rst[] = $row;
         }
-        if (isset($rst) && !is_null($rst)) {
-            return array('ERROR_CODE' => '0', 'DATA' => $rst);
+        if (!is_null($rst)) {
+            return $rst;
         } else {
-            return array('ERROR_CODE' => '99', 'ERROR_MESSAGE' => 'DB ERROR, check debuglog');
-            // debug prefix: "An error occured while connect to db, more informations:"
-            // $debuglog->appendDebug(json_encode($this->stmt->errorInfo()));
+            return $this->stmt->errorInfo();
         }
     }
     /**
      * 執行不須回傳的多條件sql statement
-     * @param array $whereAry 條件參數
+     * @param array $where_ary 條件參數
      * @return mixed
      */
-    public function doQueryWithMultiWhere($whereAry)
+    public function doQueryWithMultiWhere($where_ary)
     {
-        $this->stmt->execute($whereAry);
-        if ($this->getAffetedRows() !== 0) {
-            return array('ERROR_CODE' => '0');
-        } else {
-            return array('ERROR_CODE' => '99', 'ERROR_MESSAGE' => 'DB ERROR, check debuglog');
-            // debug prefix: "An error occured while connect to db, more informations:"
-            // $debuglog->appendDebug(json_encode($this->stmt->errorInfo()));
+        $this->stmt->execute($where_ary);
+    }
+    /**
+     * get multi results
+     * @return mixed
+     */
+    public function getAllQuery()
+    {
+        $rst = [];
+        $this->stmt->setFetchMode(PDO::FETCH_ASSOC);
+        $this->stmt->execute();
+        while ($row = $this->stmt->fetchAll()) {
+            $rst[] = $row;
         }
+        if (!is_null($rst)) {
+            return $rst;
+        } else {
+            return $this->stmt->errorInfo();
+        }
+    }
+
+    /**
+     * @return mixed
+     */
+    public function beginTransaction()
+    {
+        if (!$this->transactionCounter++) {
+            return $this->dblink->beginTransaction();
+        }
+        $this->exec('SAVEPOINT trans' . $this->transactionCounter);
+        return $this->transactionCounter >= 0;
+    }
+    /**
+     * @return mixed
+     */
+    public function commit()
+    {
+        if (!$this->transactionCounter) {
+            return $this->dblink->commit();
+        }
+        return $this->transactionCounter >= 0;
+    }
+    /**
+     * @return mixed
+     */
+    public function rollback()
+    {
+        if (--$this->transactionCounter) {
+            $this->exec('ROLLBACK TO trans' . $this->transactionCounter + 1);
+            return true;
+        }
+        return $this->dblink->rollback();
     }
     public function closeDbConn()
     {
-        $this->DBLINK = null;
+        $this->dblink = null;
     }
+
 }
