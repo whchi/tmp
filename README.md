@@ -2,10 +2,10 @@
 ###設計概念
 只透過`POST`來執行，因此相對應的文件需要很明確指出用法
 
-* #####WS路徑
+* ##### WS路徑
 `http://hostname/{module}/{action}`，翻譯成此程式碼就是`http://hostname/articles/add_an_article`
 
-* #####API設計概念
+* ##### API設計概念
 大致上分為3層(可用MVC的觀念來看)
 
 1. **[view]**最外層的接收端，只進行接收與回傳json
